@@ -8,10 +8,13 @@ Makes Financial assesment based on what is in the portfolio
 
 - Create a base config from the sample here in the repo
 
+.. code-block:: sh
+
 	% cp dot_wfc.sample ~/.wfc
 
 - Run it commandline e.g.
 
+.. code-block:: sh
 	% wfc 
 	% wfc --help
 	% wfc --system
@@ -24,6 +27,8 @@ Makes Financial assesment based on what is in the portfolio
 	% wfc owned add AAPL 9-15-2018 100 217 
 
 - or Run a Jupyter notebook
+
+.. code-block:: sh
 	% jupyter-lab
 
 	Open wfc_doc.ipynb
