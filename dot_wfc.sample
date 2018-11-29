@@ -1,0 +1,57 @@
+{
+    "basename": "username",
+    "data_location": "data/",
+    "password": "XXXX",
+    "pfolios": [
+        {
+            "EXCHG": "NSDQ",
+            "NAME": "NASDAQ_1",
+            "RELATED": [
+                "NFLX",
+                "AMD",
+                "TSLA"
+            ],
+            "TICKERS": [
+                "DDD",
+                "YELP",
+                "SSTK"
+            ]
+        }
+    ],
+    "purchased": [
+        {
+            "ticker": "DDD",
+            "ticker_purchase": [
+                {
+                    "7-31-2017": [
+                        100,
+                        15.07
+                    ]
+                },
+                {
+                    "8-21-2018": [
+                        100,
+                        21.48
+                    ]
+                }
+            ]
+        },
+        {
+            "ticker": "YELP",
+            "ticker_purchase": [
+                {
+                    "7-27-2017": [
+                        350,
+                        38 
+                    ]
+                },
+                {
+                    "8-21-2018": [
+                        250,
+                        44.53
+                    ]
+                }
+            ]
+        }
+    ]
+}

@@ -1,0 +1,228 @@
+#!/usr/bin/env python -W ignore::DeprecationWarning
+
+import sys
+import getopt
+import platform
+import os
+from os.path import expanduser
+import json
+
+from datetime import datetime
+from datetime import timedelta
+import datetime as dtt
+
+import asyncio
+import aiofiles
+
+import logzero
+from logzero import logger
+from logzero import logging
+
+
+from wfc_config import wfc_config
+from wfc_ds import wfc_dgather, wfc_dpredict, wfc_dclean, wfc_visual
+from wfc_news import wfc_feed, wfc_read
+
+
+DEFAULT_CONFIG="/.wfc"
+
+
+def usage():
+    """ Describe the usage of s3edgex """
+    print(sys.argv[0] + " --help")
+    print(sys.argv[0] + " --system")
+    print(sys.argv[0] + " [ --debug <level> ] <command> <objname> <arg>")
+    print(sys.argv[0] + " list")
+    print(sys.argv[0] + " gather <pfolio> <begin_date> <end_date>")
+    print(sys.argv[0] + " predict <ticker> <future_date>")
+    print(sys.argv[0] + " news [ <ticker> | owned ")
+    print(sys.argv[0] + " show <ticker> [ closing | volume | daily | now ]")
+    print(sys.argv[0] + " owned [ add | del ] <ticker> <purchase_date> [ <share_count> <price_paid> ]")
+
+def system_info(debug_level):
+    """ Find the system informations details like, python, memory, release versions etc """
+    print("python \t\t: " + platform.python_version() + " " + platform.python_implementation() + " " + str(platform.python_build()))
+    print("platform \t: " + platform.node() + " " + platform.system() + " " + platform.machine() + " " + platform.release())
+    print("uname \t\t: " + platform.uname().version)
+    print("debug_level \t: " + str(debug_level))
+
+
+async def wfc_list(args, cfg):
+    cfg.show()
+
+async def wfc_owned(args, cfg, sfile):
+    cfg.owned(args)
+    cfg.save(sfile)
+
+async def wfc_gather(args, cfg):
+    logger.info("gather:")
+    if (len(args) < 3):
+        logger.error("gather <pfolio> <begin_date> <end_date>")
+        return
+    pfname = args[0]
+    begin_date = args[1]
+    end_date = args[2]
+    pf = cfg.pf(pfname)
+    tkrs = pf.tickers()
+    data_gather = wfc_dgather(tkrs, begin_date, end_date)
+    data_gather.gather(cfg.data_location())
+    pass
+
+async def wfc_predict(args, cfg):
+    if (len(args) < 2):
+        logger.error("predict <ticker> <future_date>")
+        return
+    tkr_name = args[0]
+    future_date = args[1]
+    tkr_predict = wfc_dpredict(cfg, tkr_name, future_date)
+    print(tkr_name + "\t" + future_date + "\t" + str(tkr_predict.predict()))
+
+
+async def wfc_show(args, cfg):
+    if (len(args) < 1):
+        logger.error("show <ticker>")
+        return
+    ticker = args[0]
+    cmd="closing"
+    if (len(args) > 1):
+        cmd = args[1]
+    if (cmd == "help" or cmd == "-h" or cmd == "--help"):
+        print("show <ticker> [ closing | volume | daily | now ] ")
+        sys.exit(0)
+    vs = wfc_visual(cfg, ticker)
+    vs.execute(cmd)
+    pass
+
+async def wfc_clean(args, cfg):
+    clean = wfc_dclean(cfg)
+    clean.execute()
+
+async def wfc_news(args, cfg):
+    logger.info("news:")
+    if (len(args) < 1):
+        logger.error("news [ <ticker> | owned ]")
+        return
+    if (args[0] == "owned"):
+        ticker = "owned"
+    else:
+        ticker = args[0]
+
+    if ticker == "owned":
+        for x in cfg.purchased:
+            nn = wfc_feed(x['ticker'])
+            nn.get_news()
+            nn.show_summary(x['ticker'])
+    else:
+            nn = wfc_feed(ticker)
+            nn.get_news()
+            nn.show_summary(ticker)
+
+
+async def wfc_oa(args, cfg):
+    today = dtt.datetime.now()
+    today_str = today.strftime("%m-%d-%Y")
+    future = today + timedelta(days=14)
+    future_str = future.strftime("%m-%d-%Y")
+    print(today_str + "\t" + future_str)
+    for x in cfg.purchased:
+        print("========================================")
+        tkr_name = x['ticker']
+        print(tkr_name)
+        for i in x['ticker_purchase']:
+            k = i.keys()
+            for kk in k:
+                pd = i[kk]
+                print(str(kk) + "\t" + str(pd[1]) + "\t" + str(pd[0]))
+        vs = wfc_visual(cfg, tkr_name)
+        stock = vs.now("Open")
+        tkr_predict = wfc_dpredict(cfg, tkr_name, future_str)
+        print("> " + today_str + "\t" + str(round(stock[0], 2)))
+        print(future_str + "\t" + str(round(tkr_predict.predict(), 2)))
+
+
+async def process_command(cmd, args, cfg_file):
+
+    valid_cmds = [ "list", "gather", "predict", "show" , "clean" ,\
+                  "owned" , "news", "oa" ]
+    if (cmd not in valid_cmds):
+        logger.error("Unknown command: " + cmd)
+        return
+
+    # let's read the the config file first 
+    if (cfg_file != None):
+        async with aiofiles.open(cfg_file, mode='r') as f:
+            cfg_contents = await f.read()
+            cfg = wfc_config(cfg_contents)
+
+    if (cmd == "list"):
+        await wfc_list(args, cfg)
+    elif (cmd == "owned"):
+        await wfc_owned(args, cfg, cfg_file)
+    elif (cmd == "gather"):
+        await wfc_gather(args, cfg)
+    elif (cmd == "predict"):
+        await wfc_predict(args, cfg)
+    elif (cmd == "show"):
+        await wfc_show(args, cfg)
+    elif (cmd == "clean"):
+        await wfc_clean(args, cfg)
+    elif (cmd == "news"):
+        await wfc_news(args, cfg)
+    elif (cmd == "oa"):
+        await wfc_oa(args, cfg)
+    else:
+        logger.error("Unknown Command: " + cmd)
+
+def main():
+    assert sys.version_info >= (3,5)
+
+    debug_level = 5
+
+    try:
+        opts, remainder = getopt.getopt(sys.argv[1:], "hd:s", ["help", "debug", "system"])
+    except getopt.GetoptError:
+        usage()
+        sys.exit(2)
+    for o,a in opts:
+        if o in ("-h", "--help"):
+            usage()
+            sys.exit(2)
+        if o in ("-d", "--debug"):
+            debug_level = int(a)
+        if o in ("-s", "--system"):
+            system_info(debug_level)
+            sys.exit(0)
+
+    if (len(remainder) < 1):
+        usage()
+        sys.exit(2)
+
+    if (debug_level == 0):
+        log_format = '%(color)s[%(levelname)1.1s %(asctime)s %(module)s:%(lineno)d]%(end_color)s %(message)s'
+        logfile = sys.argv[0] + ".log"
+        logzero.logfile(logfile, maxBytes=1048576, backupCount=3, loglevel=logging.DEBUG, formatter=log_format)
+        formatter = logzero.LogFormatter(fmt=log_format)
+        logzero.setup_default_logger(level=logging.DEBUG, formatter=formatter)
+    else:
+        log_format = '%(message)s'
+        formatter = logzero.LogFormatter(fmt=log_format)
+        logzero.setup_default_logger(level=logging.INFO, formatter=formatter)
+
+    cfg_file = expanduser("~") + DEFAULT_CONFIG
+    if not os.path.isfile(cfg_file) or not os.access(cfg_file, os.R_OK):
+        logger.error("Unable to access " + cfg_file)
+        sys.exit(2)
+
+    # async code only here onwards
+    # ******************************************************************
+    loop = asyncio.get_event_loop()
+
+    cmd = remainder[0]
+
+    tasks = [asyncio.ensure_future(process_command(cmd, remainder[1:], cfg_file))]
+    loop.run_until_complete(asyncio.gather(*tasks))
+
+    loop.close()
+
+if __name__ == '__main__':
+    main()
