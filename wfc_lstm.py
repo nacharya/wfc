@@ -44,7 +44,7 @@ from keras.models import Sequential
 from keras.layers import Dense, Dropout, LSTM, Activation
 
 import matplotlib.pyplot as plt
-import visualize
+#import visualize
 
 # 
 from logzero import logger
