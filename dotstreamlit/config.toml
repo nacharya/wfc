@@ -1,0 +1,37 @@
+[client]
+toolbarMode = "minimal"
+showErrorDetails = true
+
+[server]
+folderWatchBlacklist = []
+#port = 9600
+#baseUrlPath = "/apps"
+headless=true
+enableCORS=false
+enableXsrfProtection = false
+maxUploadSize = 200
+maxMessageSize = 200
+enableWebsocketCompression = false
+
+[theme]
+#base = "light"
+base = "dark"
+
+#[sidebar]
+
+
+[logger]
+level = "info"
+messageFormat = "%(asctime)s %(message)s"
+
+[browser]
+gatherUsageStats = false
+serverAddress = "0.0.0.0"
+
+[runner]
+magicEnabled=true
+fastReruns=true
+
+
+[mapbox]
+token=""
