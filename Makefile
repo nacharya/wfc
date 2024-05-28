@@ -1,26 +1,17 @@
 DOCKER=docker
 
-IMG_NAME=nplayg
-CTR_NAME=nplayg
+IMG_NAME=wfc
+CTR_NAME=wfc
 IMG_VERSION=latest
 IMG_TAG=$(IMG_NAME):$(IMG_VERSION)
-PORT1=8500:8500
-PORT2=8501:8501
-
-# go lang sources
-GSRCDIR=goffj
-# rust based sources
-RSRCDIR=pgctl
-# Python3 based sources
-PSRCDIR=playui
+PORT=9900:9900
 
 VOLDATA=`pwd`/data
 
 all: $(IMG_NAME)
 
-.PHONY: all $(SUBDIRS)
+.PHONY: all
 
-SUBDIRS: $(GSRCDIR) $(RSRCDIR) $(PSRCDIR)
 
 $(IMG_NAME):
 	$(DOCKER) build -t $(IMG_TAG) --no-cache \
@@ -28,7 +19,7 @@ $(IMG_NAME):
 
 run:
 	mkdir -p data
-	$(DOCKER) run -tid -p $(PORT1) -p $(PORT2) -v $(VOLDATA):/data --name $(CTR_NAME) $(IMG_NAME)
+	$(DOCKER) run -tid -p $(PORT) -v $(VOLDATA):/data --name $(CTR_NAME) $(IMG_NAME)
 
 shell:
 ifeq ($(OS),Windows_NT)

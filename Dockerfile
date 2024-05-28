@@ -44,9 +44,7 @@ USER ${user}
 
 
 #API
-EXPOSE 9910
-# xdnview
-EXPOSE 9600
+EXPOSE 9900
 
 WORKDIR /app
 
