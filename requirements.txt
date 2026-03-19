@@ -1,2 +1,14 @@
 logzero
-streamlit
+streamlit>=1.28
+yfinance>=0.2
+pandas
+numpy
+scikit-learn
+matplotlib
+seaborn
+nltk
+feedparser
+beautifulsoup4
+aiofiles
+jupyter
+nbformat

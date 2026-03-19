@@ -1,120 +1,145 @@
 import warnings
-warnings.filterwarnings("ignore", category=UserWarning)
+warnings.filterwarnings("ignore")
 
-import os
-import feedparser
-import urllib
+import re
+import datetime
 import nltk
-
-from bs4 import BeautifulSoup
-from nltk.corpus import stopwords
-from nltk.classify import NaiveBayesClassifier
-from nltk.corpus import subjectivity
-from nltk.sentiment import SentimentAnalyzer
-from nltk.sentiment.util import *
+import yfinance as yf
 from nltk.sentiment.vader import SentimentIntensityAnalyzer
 
-import pandas as pd
+try:
+    nltk.data.find('sentiment/vader_lexicon.zip')
+except LookupError:
+    nltk.download('vader_lexicon', quiet=True)
+
 
 class wfc_feed:
+    """Fetch news for a ticker via yfinance and score sentiment with VADER.
+
+    Each article dict contains:
+        title     - headline text
+        summary   - article summary (falls back to title if unavailable)
+        url       - link to original source
+        publisher - news outlet name
+        published - formatted date string
+        pos / neg / neu / compound - VADER sentiment scores
+    """
 
     def __init__(self, ticker):
-        nasdaq_url = "http://articlefeeds.nasdaq.com/nasdaq/symbols?symbol="
-        self.newsurls = {
-            ticker :             nasdaq_url+ticker
-        }
-        self.a_headlines = []
-        self.ticker = ticker
-        self.rdr = None
-
-    def get_headlines(self, rss_url ):
-        headlines = []
-        feed = feedparser.parse( rss_url )
-        for newsitem in feed['items']:
-            headlines.append(newsitem['title'])
-        return headlines
+        self.ticker   = ticker
+        self.articles = []
+        self._sia     = SentimentIntensityAnalyzer()
 
     def get_news(self):
-        for key,url in self.newsurls.items():
-            self.a_headlines.extend( self.get_headlines( url ) )
-        self.rdr = wfc_read(self.a_headlines)
-        self.rdr.qsenti()
-        x = min(self.rdr.pos, self.rdr.neu, self.rdr.neg)
-        z = max(self.rdr.pos, self.rdr.neu, self.rdr.neg)
-        y = ( self.rdr.pos + self.rdr.neu + self.rdr.neg) - (x + z)
-        #print("pos: " + str(rdr.pos) + "\tneu: " + str(rdr.neu) + "\tneg: " + str(rdr.neg) + \
-        #        "\t[" + str(x) + "\t" + str(y) + "\t" + str(z) + "]")
+        news = yf.Ticker(self.ticker).news or []
+        for item in news:
+            # yfinance >= 0.2.50 nests everything under item['content']
+            c = item.get('content') or item
+
+            title = c.get('title', '').strip()
+            if not title:
+                continue
+
+            # summary: plain text preferred; strip HTML tags if needed
+            raw_summary = c.get('summary') or c.get('description') or ''
+            summary = re.sub(r'<[^>]+>', '', raw_summary).strip() or title
+
+            # URL
+            url = (c.get('canonicalUrl') or c.get('clickThroughUrl') or {}).get('url', '')
+            if not url:
+                url = c.get('link', '')
+
+            # publisher
+            publisher = (c.get('provider') or {}).get('displayName', '') or c.get('publisher', '')
+
+            # publish date
+            pub_raw = c.get('pubDate') or c.get('displayTime') or ''
+            if pub_raw:
+                try:
+                    dt = datetime.datetime.fromisoformat(pub_raw.replace('Z', '+00:00'))
+                    published = dt.strftime('%Y-%m-%d %H:%M')
+                except ValueError:
+                    published = pub_raw
+            else:
+                ts = c.get('providerPublishTime', 0)
+                published = (datetime.datetime.fromtimestamp(ts).strftime('%Y-%m-%d %H:%M')
+                             if ts else '')
+
+            scores = self._sia.polarity_scores(title)
+            self.articles.append({
+                'title':     title,
+                'summary':   summary,
+                'url':       url,
+                'publisher': publisher,
+                'published': published,
+                'pos':       scores['pos'],
+                'neg':       scores['neg'],
+                'neu':       scores['neu'],
+                'compound':  scores['compound'],
+            })
+        self.articles.sort(key=lambda a: a['published'], reverse=True)
+
+    # ------------------------------------------------------------------ totals
+
+    def _totals(self):
+        pos = sum(a['pos'] for a in self.articles)
+        neg = sum(a['neg'] for a in self.articles)
+        neu = sum(a['neu'] for a in self.articles)
+        return pos, neg, neu
 
     def get_pos(self):
-        return self.rdr.pos
-    def get_neu(self):
-        return self.rdr.neu
+        return self._totals()[0]
+
     def get_neg(self):
-        return self.rdr.neg
-    def senti(self, level):
-        return self.rdr.sentiment(level)
+        return self._totals()[1]
 
-    def show_summary(self,ticker):
-        print(ticker + "\t+ve: " + str(self.get_pos()) + "\t-ve: " + str(self.get_neg()) \
-                + "\t~neutral: " + str(self.get_neu()))
+    def get_neu(self):
+        return self._totals()[2]
 
+    # -------------------------------------------------------------- filtering
 
-    def get_titles(self):
-        return self.a_headlines
+    def get_headlines(self, sentiment=None, n=5):
+        """Return up to n articles sorted by compound score.
 
-    def show(self):
-        if (self.cmd == "head"):
-            for hl in self.a_headlines:
-                print(hl)
+        sentiment: 'positive' | 'negative' | None (returns all sorted by date)
+        """
+        if sentiment == 'positive':
+            filtered = sorted(self.articles, key=lambda a: a['compound'], reverse=True)
+        elif sentiment == 'negative':
+            filtered = sorted(self.articles, key=lambda a: a['compound'])
         else:
-            for buf in self.a_newsbuf:
-                print(buf)
+            filtered = self.articles
+        return filtered[:n]
 
-    def get_content(self, rss_url):
-        content_buffer = []
-        feed = feedparser.parse( rss_url )
-        for entry in feed['entries']:
-            content = urllib.request.urlopen(entry['link']).read()
-            html = content.decode("utf-8")
-            soup = BeautifulSoup(html,"html5lib")
-            text = soup.get_text(strip=True)
-            content_buffer.append(text)
-        return content_buffer
+    def overall_sentiment(self):
+        """Return 'positive', 'negative', or 'neutral' based on aggregated scores."""
+        if not self.articles:
+            return 'neutral'
+        pos, neg, neu = self._totals()
+        if pos > neg and pos > neu:
+            return 'positive'
+        if neg > pos and neg > neu:
+            return 'negative'
+        return 'neutral'
 
+    # ---------------------------------------------------------------- display
 
-class wfc_read():
-    def __init__(self, content):
-        self.content = content
-        self.pos = 0.0
-        self.neg = 0.0
-        self.neu = 0.0
-
-    def sentiment(self, level):
-        sid = SentimentIntensityAnalyzer()
-        results = []
-        for hl in self.content:
-            pol_score = sid.polarity_scores(hl)
-            pol_score['headline'] = hl
-            results.append(pol_score)
-
-        for it in results:
-            if ((level < 0) and (it['neg'] > 0)):
-                print(it['headline'])
-            elif ( (level > 1) and (it['pos'] > 0) ):
-                print(it['headlinei'])
-            elif ( (level == 0) and (it['neu'] > 0) ):
-                print(it['headline'])
-
-    def qsenti(self):
-        sid = SentimentIntensityAnalyzer()
-        results = []
-        for hl in self.content:
-            pol_score = sid.polarity_scores(hl)
-            pol_score['headline'] = hl
-            results.append(pol_score)
-
-        for it in results:
-            self.pos += it['pos']
-            self.neg += it['neg']
-            self.neu += it['neu']
-
+    def show_summary(self, ticker=None):
+        label = ticker or self.ticker
+        pos, neg, neu = self._totals()
+        total = len(self.articles)
+        overall = self.overall_sentiment()
+        print(f"\n{label}  ({total} articles)  overall: {overall.upper()}")
+        print(f"  Positive: {pos:.2f}  Negative: {neg:.2f}  Neutral: {neu:.2f}")
+        if not self.articles:
+            return
+        print("\n  Top Positive Headlines:")
+        for a in self.get_headlines('positive', 3):
+            print(f"    [{a['compound']:+.2f}] {a['title']}")
+            if a['url']:
+                print(f"           {a['url']}")
+        print("\n  Top Negative Headlines:")
+        for a in self.get_headlines('negative', 3):
+            print(f"    [{a['compound']:+.2f}] {a['title']}")
+            if a['url']:
+                print(f"           {a['url']}")
